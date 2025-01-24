@@ -1,0 +1,94 @@
+# From https://github.com/RobRaesemann/FLEDGE-IOT-Docker
+services:
+  fledge:
+    build:
+      context: .
+      dockerfile: fledge/Dockerfile.fledge_power
+    platform: linux/amd64
+    container_name: og-fledge
+    environment:
+      - FLEDGE_ROOT=/usr/local/fledge
+      - TZ=${TZ}
+    volumes:
+      - fledge:/usr/local/fledge
+      #- ./mqtt-readings-binary:/usr/local/fledge/python/fledge/plugins/south/mqtt-readings-binary
+    ports:
+      - 8081:8081 # Fledge management API
+      - 6685:6685 # Fledge south API
+      - 6683:6683
+      - 8080:8080 # Optional: Additional API if configured
+
+  fledge-gui:
+    container_name: og-fledge-gui
+    image: robraesemann/fledge-gui:2.6.0
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 80:80 # Fledge GUI
+
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: og-mosquitto
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 1884:1883
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  fledge-api:
+    container_name: og-fledge-api
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000" # FastAPI Swagger
+    depends_on:
+      fledge:
+        condition: service_started
+    environment:
+      - FLEDGE_BASE_URL=${FLEDGE_BASE_URL}
+      - TZ=${TZ}
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000
+
+  # mqtt-seed-stem-json-emulator:
+  #   build: ./mqtt-publisher
+  #   container_name: og-mqtt-seed-stem-json-emulator
+  #   environment:
+  #     PDS_INTERVAL: 60 # Default interval for PDS in seconds
+  #     ADS_INTERVAL: 10 # Default interval for ADS in seconds
+  #     MQTT_BROKER: "mosquitto" # Replace with your MQTT broker hostname or IP
+  #     MQTT_PORT: 1883 # MQTT broker port
+  #     MQTT_DEVICE: ${MQTT_DEVICE} #list of MQTT devices to simulate data
+  #     TZ: ${TZ}
+  #     SLEEP_BEFORE_START: 300
+  #   volumes:
+  #     - ./mqtt-publisher/config_pds.json:/app/config_pds.json
+  #     - ./mqtt-publisher/config_ads.json:/app/config_ads.json
+  #     - ./mqtt-publisher/config_dds.json:/app/config_dds.json
+  #   depends_on:
+  #     - mosquitto
+
+  mqtt-seed-stem-binary-emulator:
+    container_name: og-mqtt-seed-stem-binary-emulator
+    build:
+      context: https://${GITHUB_TOKEN}@github.com/OrxaGridMicroservices/SEED-STEM-Emulator.git#udms-4673-Load-test-Fledge-using-emulator
+    platform: linux/amd64
+    command: python /app/main.py --data_type random --interval 20
+
+    environment:
+      - MQTT_BROKER=${MQTT_BROKER}
+      - MQTT_PORT=${MQTT_PORT}
+      - MQTT_USERNAME=${MQTT_USERNAME}
+      - MQTT_PASSWORD=${MQTT_PASSWORD}
+      - MQTT_TOPIC=${MQTT_TOPIC}
+      - DEVICE_TYPE=${DEVICE_TYPE}
+      - DEVICE_COUNT=${DEVICE_COUNT}
+      - TZ=${TZ}
+      - SLEEP_BEFORE_START =$SLEEP_BEFORE_START
+    restart: always # Added restart policy
+    stdin_open: true
+
+volumes:
+  fledge:
